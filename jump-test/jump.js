@@ -6,8 +6,10 @@ const hint = document.getElementById('hint');
 const W = canvas.width;
 const H = canvas.height;
 const floor = 368;
-const launchTime = .19;
-const flightTime = .61;
+const launchTime = .15;
+const plantTime = .105;
+const gripY = floor - 79;
+const flightTime = .62;
 const landingTime = .14;
 const exitDistance = 68;
 const panels = [
@@ -15,7 +17,7 @@ const panels = [
   { left: 980, right: 1824, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-ready', 'vault-dive', 'vault-land']) {
+for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-ready', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -31,7 +33,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const ease = p => p * p * (3 - 2 * p);
 
 function reset() {
-  state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, passes: 0 };
+  state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, passes: 0, effects: [] };
   jumpQueued = false;
   hint.textContent = 'Иди к жёлтой стрелке';
 }
@@ -40,6 +42,10 @@ function phase(name, message) {
   state.phase = name;
   state.t = 0;
   if (message) hint.textContent = message;
+}
+
+function burst(type, x, y, direction) {
+  state.effects.push({ type, x, y, direction, age: 0, duration: type === 'land' ? .32 : .25 });
 }
 
 function keyDown(key) {
@@ -90,6 +96,8 @@ function update(dt) {
   const jump = jumpQueued;
   jumpQueued = false;
   s.t += dt;
+  for (const effect of s.effects) effect.age += dt;
+  s.effects = s.effects.filter(effect => effect.age < effect.duration);
   switch (s.phase) {
     case 'ground': {
       const move = Number(down('ArrowRight')) - Number(down('ArrowLeft'));
@@ -99,7 +107,8 @@ function update(dt) {
       const distance = Math.abs(s.x - edge);
       if ((move === dir && distance <= exitDistance) || (jump && distance <= 126)) {
         s.from = s.x;
-        s.takeoff = edge - dir * 26;
+        s.edge = edge;
+        s.takeoff = edge - dir * 56;
         const next = panels[1 - s.panel];
         s.to = (dir === 1 ? next.left : next.right) + dir * 156;
         s.cameraFrom = s.camera;
@@ -119,7 +128,16 @@ function update(dt) {
       break;
     case 'launch': {
       const p = clamp(s.t / launchTime, 0, 1);
-      s.x = lerp(s.from, s.takeoff, p * p);
+      s.x = lerp(s.from, s.takeoff - dir * 20, p * p);
+      if (p === 1) {
+        burst('grip', s.edge, gripY, dir);
+        phase('plant', 'Упор рукой');
+      }
+      break;
+    }
+    case 'plant': {
+      const p = clamp(s.t / plantTime, 0, 1);
+      s.x = s.takeoff - dir * 20 * (1 - ease(p));
       if (p === 1) phase('cross', 'Перелёт');
       break;
     }
@@ -131,6 +149,7 @@ function update(dt) {
       if (p === 1) {
         s.panel = 1 - s.panel;
         s.passes++;
+        burst('land', s.x, floor, dir);
         phase('land', 'Приземление');
       }
       break;
@@ -182,6 +201,69 @@ function sprite(name, x, y, face, height, anchorX = .5, anchorY = 1, tilt = 0, o
   ctx.restore();
 }
 
+function drawFlight(s, p) {
+  const centerY = s.y - 47;
+  if (p < .58) {
+    ctx.save();
+    ctx.globalAlpha = Math.sin(Math.PI * p / .58) * .75;
+    ctx.strokeStyle = '#392935';
+    for (let i = 0; i < 3; i++) {
+      const tail = s.x - s.face * (49 + i * 8);
+      const y = centerY + i * 11;
+      ctx.lineWidth = 3 - i * .7;
+      ctx.beginPath();
+      ctx.moveTo(tail, y);
+      ctx.lineTo(tail - s.face * (30 + i * 11), y + 8);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  if (p < .27) {
+    sprite('vault-dive', s.x, centerY, s.face, 80, .52, .53, lerp(-.14, .07, p / .27));
+  } else if (p < .46) {
+    sprite('vault-tuck', s.x, centerY, s.face, 100, .53, .53);
+  } else if (p < .65) {
+    sprite('vault-twist', s.x, centerY, s.face, 100, .52, .53);
+  } else {
+    const recovery = (p - .65) / .35;
+    sprite('vault-unwind', s.x, s.y + 4 * (1 - recovery), s.face, 114, .55, 1);
+  }
+}
+
+function drawEffects(effects) {
+  for (const { type, x, y, direction, age, duration } of effects) {
+    const p = age / duration;
+    const travel = ease(p);
+    ctx.save();
+    ctx.globalAlpha = (1 - p) ** 1.4;
+    if (type === 'grip') {
+      ctx.fillStyle = '#fff2b5';
+      ctx.fillRect(x - 3, y - 17, 6, 34);
+      for (let i = 0; i < 6; i++) {
+        const angle = (i - 2.5) * .55;
+        const dx = direction * Math.cos(angle);
+        const dy = Math.sin(angle);
+        const distance = 8 + travel * (19 + i * 3);
+        ctx.strokeStyle = i % 2 ? '#ffba50' : '#fff2b5';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x + dx * distance, y + dy * distance);
+        ctx.lineTo(x + dx * (distance + 12), y + dy * (distance + 12));
+        ctx.stroke();
+      }
+    } else {
+      for (let i = 0; i < 10; i++) {
+        const side = i % 2 ? 1 : -1;
+        const dx = side * (18 + (18 + i * 4) * travel);
+        const dy = 4 + (10 + i * 2) * Math.sin(p * Math.PI * .9);
+        ctx.fillStyle = i % 3 === 0 ? '#382737' : '#f4cd81';
+        ctx.fillRect(x + dx, y - dy, 8 - p * 5, 3);
+      }
+    }
+    ctx.restore();
+  }
+}
+
 function render() {
   const s = state;
   ctx.imageSmoothingEnabled = false;
@@ -219,26 +301,19 @@ function render() {
     ctx.ellipse(s.x, floor + 3, 27, 5, 0, 0, 2 * Math.PI);
     ctx.fill();
   }
+  drawEffects(s.effects);
   if (s.phase === 'launch') {
     sprite('vault-ready', s.x, floor, s.face, 94);
+  } else if (s.phase === 'plant') {
+    const p = clamp(s.t / plantTime, 0, 1);
+    sprite('vault-plant', s.edge, gripY, s.face, 92, .982, .222, lerp(-.11, .15, ease(p)));
   } else if (s.phase === 'hop') {
     sprite('vault-reach', s.x, s.y, s.face, 125, .61);
   } else if (s.phase === 'cross') {
     const p = s.t / flightTime;
-    if (p < .43) {
-      sprite('vault-dive', s.x, s.y - 40, s.face, 80, .52, .63, lerp(-.14, .09, p / .43));
-    } else {
-      sprite('vault-reach', s.x, s.y, s.face, 111, .61, 1, lerp(-.16, .15, (p - .43) / .57));
-    }
+    drawFlight(s, p);
   } else if (s.phase === 'land') {
     sprite('vault-land', s.x, floor, s.face, 97);
-    ctx.strokeStyle = '#f9db9a';
-    for (const dir of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(s.x + dir * 19, floor);
-      ctx.lineTo(s.x + dir * (37 + s.t * 50), floor - 8 - s.t * 20);
-      ctx.stroke();
-    }
   } else {
     const walk = s.stride && Math.floor(s.stride) % 2 === 0;
     sprite(walk ? 'vera-walk' : 'vera-idle', s.x, floor, s.face, 125);
