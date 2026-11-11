@@ -21,7 +21,7 @@ const panels = [
   { left: roofLeft, right: roofLeft + panelWidth, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-ready', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-recover']) {
+for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-ready', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -255,14 +255,18 @@ function drawFlight(s, p) {
     }
     ctx.restore();
   }
-  if (p < .11) {
+  if (p < .105) {
     // Carry the contact point into the first release frame, then let the palm travel with Vera.
-    const releaseProgress = ease(p / .11);
+    const releaseProgress = ease(p / .105);
     const palmX = lerp(s.edge, s.x + s.face * 57, releaseProgress);
     const palmY = lerp(gripY, centerY - 24, releaseProgress);
     sprite('vault-release', palmX, palmY, s.face, 106, .91, .235, lerp(.15, -.06, releaseProgress));
+  } else if (p < .195) {
+    // Match the leading shoulder across the three push-off cels.
+    const extension = (p - .105) / .09;
+    sprite('vault-extend', s.x + s.face * lerp(23, 18, extension), centerY - 24, s.face, 89, .70, .36, lerp(-.06, 0, extension));
   } else if (p < .29) {
-    sprite('vault-dive', s.x, centerY, s.face, 80, .52, .53, lerp(-.14, .07, (p - .11) / .18));
+    sprite('vault-dive', s.x + s.face * 18, centerY - 24, s.face, 80, .61, .27, lerp(0, .07, (p - .195) / .095));
   } else if (p < .46) {
     sprite('vault-tuck', s.x, centerY, s.face, 100, .53, .53);
   } else if (p < .65) {
