@@ -14,6 +14,16 @@ const gripY = floor - 79;
 const flightTime = .73;
 const landingTime = .24;
 const exitDistance = 68;
+const jogSpeed = 235;
+const jogCycleDistance = 150;
+const jogFrames = [
+  { name: 'vera-jog-1', height: 124, hip: 0.553 },
+  { name: 'vera-jog-2', height: 124, hip: 0.550 },
+  { name: 'vera-jog-3', airborne: true, height: 110, hip: 0.512 },
+  { name: 'vera-jog-4', height: 123, hip: 0.538 },
+  { name: 'vera-jog-5', height: 123, hip: 0.551 },
+  { name: 'vera-jog-6', airborne: true, height: 114, hip: 0.531 },
+];
 const panelWidth = 844;
 const gutterWidth = 110;
 const roofLeft = panelWidth + gutterWidth;
@@ -22,7 +32,7 @@ const panels = [
   { left: roofLeft, right: roofLeft + panelWidth, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-load', 'vault-spring', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
+for (const name of ['press', 'roof', 'vera-idle', ...jogFrames.map(frame => frame.name), 'vault-reach', 'vault-load', 'vault-spring', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -40,7 +50,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const ease = p => p * p * (3 - 2 * p);
 
 function reset() {
-  state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, passes: 0, effects: [] };
+  state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, jogVelocity: 0, passes: 0, effects: [] };
   jumpQueued = false;
   previousCamera = state.camera;
   lastJump = null;
@@ -83,7 +93,7 @@ replayButton.addEventListener('click', () => {
   held.clear();
   pointers.clear();
   jumpQueued = false;
-  Object.assign(state, lastJump, { effects: [], stride: 0 });
+  Object.assign(state, lastJump, { effects: [], stride: 0, jogVelocity: 0 });
   previousCamera = state.camera;
   startVault(lastJump.direction, lastJump.edge);
 });
@@ -131,6 +141,25 @@ function startVault(direction, edge) {
   phase('load', 'Подготовка');
 }
 
+function moveOnGround(s, panel, input, dt) {
+  const target = input * jogSpeed;
+  const acceleration = (input ? 1710 : 2350) * dt;
+  s.jogVelocity += clamp(target - s.jogVelocity, -acceleration, acceleration);
+  const before = s.x;
+  s.x = clamp(s.x + s.jogVelocity * dt, panel.left + 37, panel.right - 37);
+  const distance = s.x - before;
+  s.jogging = Math.abs(distance) > .015;
+  if (s.jogging) {
+    const direction = Math.sign(distance);
+    if (direction !== s.face) s.stride = 0;
+    s.face = direction;
+    s.landedPose = false;
+    s.stride = (s.stride + Math.abs(distance)) % jogCycleDistance;
+  } else {
+    s.stride = 0;
+  }
+}
+
 function update(dt) {
   const s = state;
   const panel = panels[s.panel];
@@ -144,15 +173,14 @@ function update(dt) {
   switch (s.phase) {
     case 'ground': {
       const move = Number(down('ArrowRight')) - Number(down('ArrowLeft'));
-      if (move) s.face = move;
-      if (move || jump) s.landedPose = false;
-      s.x = clamp(s.x + move * 248 * dt, panel.left + 37, panel.right - 37);
-      s.stride = move ? s.stride + dt * 10 : 0;
+      moveOnGround(s, panel, move, dt);
+      if (jump) s.landedPose = false;
       const distance = Math.abs(s.x - edge);
       if ((move === dir && distance <= exitDistance) || (jump && distance <= 126)) {
         startVault(dir, edge);
       } else if (jump) {
         s.vy = -420;
+        s.jogVelocity = 0;
         replayButton.disabled = true;
         phase('hop');
       }
@@ -192,6 +220,8 @@ function update(dt) {
       if (p === 1) {
         s.panel = 1 - s.panel;
         s.stride = 0;
+        s.jogVelocity = 0;
+        s.jogging = false;
         s.landedPose = true;
         s.passes++;
         burst('land', s.x, floor, dir);
@@ -378,8 +408,15 @@ function render(camera) {
     if (s.t < .125) sprite('vault-land', s.x, floor, s.face, 97, .54, .985);
     else sprite('vault-recover', s.x, floor, s.face, 113, .70, .965);
   } else {
-    const walk = s.stride && Math.floor(s.stride) % 2 === 0;
-    sprite(walk ? 'vera-walk' : 'vera-idle', s.x, floor, s.face, 125, s.landedPose ? .77 : .5);
+    if (s.jogging) {
+      const progress = s.stride * jogFrames.length / jogCycleDistance;
+      const frameIndex = Math.floor(progress);
+      const frame = jogFrames[frameIndex];
+      const lift = frame.airborne ? 12 * Math.sin(Math.PI * (progress - frameIndex)) : 0;
+      sprite(frame.name, s.x, floor - lift, s.face, frame.height, frame.hip);
+    } else {
+      sprite('vera-idle', s.x, floor, s.face, 125, s.landedPose ? .77 : .5);
+    }
   }
   ctx.restore();
 }
