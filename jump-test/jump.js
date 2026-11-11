@@ -22,7 +22,7 @@ const panels = [
   { left: roofLeft, right: roofLeft + panelWidth, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-load', 'vault-spring', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
+for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-load', 'vault-spring', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -33,16 +33,16 @@ const pointers = new Map();
 const controls = new Set(['ArrowLeft', 'ArrowRight', 'Space', 'KeyR']);
 let jumpQueued = false;
 let state;
+let previousCamera;
 let lastJump;
-let previous;
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 const lerp = (a, b, t) => a + (b - a) * t;
 const ease = p => p * p * (3 - 2 * p);
 
 function reset() {
-  previous = null;
   state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, passes: 0, effects: [] };
   jumpQueued = false;
+  previousCamera = state.camera;
   lastJump = null;
   replayButton.disabled = true;
   hint.textContent = 'Иди к жёлтой стрелке';
@@ -84,6 +84,7 @@ replayButton.addEventListener('click', () => {
   pointers.clear();
   jumpQueued = false;
   Object.assign(state, lastJump, { effects: [], stride: 0 });
+  previousCamera = state.camera;
   startVault(lastJump.direction, lastJump.edge);
 });
 document.querySelectorAll('[data-key]').forEach(button => {
@@ -185,9 +186,7 @@ function update(dt) {
     }
     case 'cross': {
       const p = clamp(s.t / flightTime, 0, 1);
-      // Ease the horizontal speed into and out of the arc without stopping midair.
-      const travel = lerp(p, ease(p), .48);
-      s.x = lerp(s.takeoff, s.to, travel);
+      s.x = lerp(s.takeoff, s.to, p);
       s.y = floor - 126 * 4 * p * (1 - p);
       s.camera = lerp(s.cameraFrom, s.cameraTo, ease(p));
       if (p === 1) {
@@ -275,16 +274,16 @@ function drawFlight(s, p) {
     sprite('vault-extend', s.x + s.face * lerp(23, 18, extension), centerY - 24, s.face, 89, .70, .36, lerp(-.06, 0, extension));
   } else if (p < .29) {
     sprite('vault-dive', s.x + s.face * 18, centerY - 24, s.face, 80, .61, .27, lerp(0, .07, (p - .195) / .095));
-  } else if (p < .46) {
-    const roll = ease((p - .29) / .17);
-    sprite('vault-tuck', s.x, centerY, s.face, 100, .53, .53, lerp(-.14, .32, roll));
+  } else if (p < .425) {
+    sprite('vault-tuck', s.x, centerY, s.face, 100, .53, .53);
+  } else if (p < .525) {
+    sprite('vault-roll', s.x, centerY, s.face, 98, .52, .52);
   } else if (p < .65) {
-    const roll = ease((p - .46) / .19);
-    sprite('vault-twist', s.x, centerY, s.face, 100, .52, .53, lerp(-.27, .26, roll));
+    sprite('vault-twist', s.x, centerY, s.face, 100, .52, .53);
   } else {
     const recovery = (p - .65) / .35;
     // Shift the sprite's origin from the torso to the forward sole during descent.
-    sprite('vault-unwind', s.x, s.y, s.face, 114, lerp(.55, .81, ease(recovery)), .98, lerp(-.15, 0, ease(recovery)));
+    sprite('vault-unwind', s.x, s.y, s.face, 114, lerp(.55, .81, ease(recovery)), .98);
   }
 }
 
@@ -322,17 +321,13 @@ function drawEffects(effects) {
   }
 }
 
-function render(previous, alpha) {
-  const current = state;
-  const s = previous && previous.phase === current.phase && previous.passes === current.passes
-    ? { ...current, x: lerp(previous.x, current.x, alpha), y: lerp(previous.y, current.y, alpha),
-        camera: lerp(previous.camera, current.camera, alpha), t: lerp(previous.t, current.t, alpha) }
-    : current;
+function render(camera) {
+  const s = state;
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = '#f0dbac';
   ctx.fillRect(0, 0, W, H);
   ctx.save();
-  ctx.translate(-Math.round(s.camera), 0);
+  ctx.translate(-camera, 0);
   panels.forEach(drawPanel);
   if (s.phase === 'ground' || s.phase === 'hop') {
     const panel = panels[s.panel];
@@ -380,13 +375,8 @@ function render(previous, alpha) {
     const p = s.t / flightTime;
     drawFlight(s, p);
   } else if (s.phase === 'land') {
-    if (s.t < .125) {
-      const compression = ease(s.t / .125);
-      sprite('vault-land', s.x, floor, s.face, 97, .54, .985, .045 * compression, lerp(1.08, .95, compression));
-    } else {
-      const rise = ease(clamp((s.t - .125) / (landingTime - .125), 0, 1));
-      sprite('vault-recover', s.x, floor, s.face, 113, .70, .965, lerp(.045, 0, rise), lerp(.86, 1.04, rise));
-    }
+    if (s.t < .125) sprite('vault-land', s.x, floor, s.face, 97, .54, .985);
+    else sprite('vault-recover', s.x, floor, s.face, 113, .70, .965);
   } else {
     const walk = s.stride && Math.floor(s.stride) % 2 === 0;
     sprite(walk ? 'vera-walk' : 'vera-idle', s.x, floor, s.face, 125, s.landedPose ? .77 : .5);
@@ -401,11 +391,11 @@ function frame(now) {
   remainder += clamp((now - last) / 1000, 0, .05);
   last = now;
   while (remainder >= 1 / 120) {
-    previous = { phase: state.phase, passes: state.passes, x: state.x, y: state.y, camera: state.camera, t: state.t };
+    previousCamera = state.camera;
     update(1 / 120);
     remainder -= 1 / 120;
   }
-  render(previous, remainder * 120);
+  render(lerp(previousCamera, state.camera, remainder * 120));
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
