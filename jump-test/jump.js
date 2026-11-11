@@ -13,9 +13,12 @@ const gripY = floor - 79;
 const flightTime = .73;
 const landingTime = .24;
 const exitDistance = 68;
+const panelWidth = 844;
+const gutterWidth = 110;
+const roofLeft = panelWidth + gutterWidth;
 const panels = [
-  { left: 0, right: 844, label: 'ПЕЧАТНЫЙ ЦЕХ', art: 'press' },
-  { left: 980, right: 1824, label: 'КРЫША', art: 'roof' },
+  { left: 0, right: panelWidth, label: 'ПЕЧАТНЫЙ ЦЕХ', art: 'press' },
+  { left: roofLeft, right: roofLeft + panelWidth, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
 for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-ready', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-recover']) {
