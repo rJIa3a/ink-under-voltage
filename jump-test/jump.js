@@ -103,6 +103,15 @@ function down(key) {
   return held.has(key) || Array.from(pointers.values()).includes(key);
 }
 
+function cameraAt(panelIndex, x) {
+  const panel = panels[panelIndex];
+  const direction = panelIndex === 0 ? 1 : -1;
+  const edge = direction === 1 ? panel.right : panel.left;
+  const base = direction === 1 ? 0 : panel.right - W;
+  const peek = clamp(1 - Math.abs(x - edge) / 470, 0, 1) * 205;
+  return base + direction * peek;
+}
+
 function startVault(direction, edge) {
   const s = state;
   lastJump = { x: s.x, y: s.y, camera: s.camera, panel: s.panel, direction, edge };
@@ -113,7 +122,7 @@ function startVault(direction, edge) {
   const next = panels[1 - s.panel];
   s.to = (direction === 1 ? next.left : next.right) + direction * 156;
   s.cameraFrom = s.camera;
-  s.cameraTo = direction === 1 ? panels[1].right - W : 0;
+  s.cameraTo = cameraAt(1 - s.panel, s.to);
   s.face = direction;
   phase('launch', 'Толчок');
 }
@@ -132,6 +141,7 @@ function update(dt) {
     case 'ground': {
       const move = Number(down('ArrowRight')) - Number(down('ArrowLeft'));
       if (move) s.face = move;
+      if (move || jump) s.landedPose = false;
       s.x = clamp(s.x + move * 248 * dt, panel.left + 37, panel.right - 37);
       s.stride = move ? s.stride + dt * 10 : 0;
       const distance = Math.abs(s.x - edge);
@@ -154,7 +164,7 @@ function update(dt) {
       break;
     case 'launch': {
       const p = clamp(s.t / launchTime, 0, 1);
-      s.x = lerp(s.from, s.takeoff - dir * 20, p * p);
+      s.x = lerp(s.from, s.takeoff - dir * 7, p * p);
       if (p === 1) {
         burst('grip', s.edge, gripY, dir);
         phase('plant', 'Упор рукой');
@@ -163,7 +173,7 @@ function update(dt) {
     }
     case 'plant': {
       const p = clamp(s.t / plantTime, 0, 1);
-      s.x = s.takeoff - dir * 20 * (1 - ease(p));
+      s.x = s.takeoff - dir * 7 * (1 - ease(p));
       if (p === 1) phase('cross', 'Перелёт');
       break;
     }
@@ -174,6 +184,8 @@ function update(dt) {
       s.camera = lerp(s.cameraFrom, s.cameraTo, ease(p));
       if (p === 1) {
         s.panel = 1 - s.panel;
+        s.stride = 0;
+        s.landedPose = true;
         s.passes++;
         burst('land', s.x, floor, dir);
         phase('land', 'Приземление');
@@ -188,11 +200,7 @@ function update(dt) {
       break;
   }
   if (s.phase === 'ground' || s.phase === 'hop') {
-    const view = s.panel === 0 ? 0 : panels[1].right - W;
-    const current = panels[s.panel];
-    const nextEdge = s.panel === 0 ? current.right : current.left;
-    const peek = clamp(1 - Math.abs(s.x - nextEdge) / 470, 0, 1) * 205;
-    s.camera += (view + (s.panel === 0 ? 1 : -1) * peek - s.camera) * (1 - Math.exp(-7.5 * dt));
+    s.camera += (cameraAt(s.panel, s.x) - s.camera) * (1 - Math.exp(-7.5 * dt));
   }
 }
 
@@ -248,7 +256,11 @@ function drawFlight(s, p) {
     ctx.restore();
   }
   if (p < .11) {
-    sprite('vault-release', s.x, centerY + 6, s.face, 106, .54, .52);
+    // Carry the contact point into the first release frame, then let the palm travel with Vera.
+    const releaseProgress = ease(p / .11);
+    const palmX = lerp(s.edge, s.x + s.face * 57, releaseProgress);
+    const palmY = lerp(gripY, centerY - 24, releaseProgress);
+    sprite('vault-release', palmX, palmY, s.face, 106, .91, .235, lerp(.15, -.06, releaseProgress));
   } else if (p < .29) {
     sprite('vault-dive', s.x, centerY, s.face, 80, .52, .53, lerp(-.14, .07, (p - .11) / .18));
   } else if (p < .46) {
@@ -257,7 +269,8 @@ function drawFlight(s, p) {
     sprite('vault-twist', s.x, centerY, s.face, 100, .52, .53);
   } else {
     const recovery = (p - .65) / .35;
-    sprite('vault-unwind', s.x, s.y + 4 * (1 - recovery), s.face, 114, .55, 1);
+    // Shift the sprite's origin from the torso to the forward sole during descent.
+    sprite('vault-unwind', s.x, s.y, s.face, 114, lerp(.55, .81, ease(recovery)), .98);
   }
 }
 
@@ -344,11 +357,11 @@ function render() {
     const p = s.t / flightTime;
     drawFlight(s, p);
   } else if (s.phase === 'land') {
-    if (s.t < .125) sprite('vault-land', s.x, floor, s.face, 97);
-    else sprite('vault-recover', s.x, floor, s.face, 113);
+    if (s.t < .125) sprite('vault-land', s.x, floor, s.face, 97, .54, .985);
+    else sprite('vault-recover', s.x, floor, s.face, 113, .70, .965);
   } else {
     const walk = s.stride && Math.floor(s.stride) % 2 === 0;
-    sprite(walk ? 'vera-walk' : 'vera-idle', s.x, floor, s.face, 125);
+    sprite(walk ? 'vera-walk' : 'vera-idle', s.x, floor, s.face, 125, s.landedPose ? .77 : .5);
   }
   ctx.restore();
 }
