@@ -7,7 +7,8 @@ const replayButton = document.getElementById('replay');
 const W = canvas.width;
 const H = canvas.height;
 const floor = 368;
-const launchTime = .17;
+const crouchTime = .29;
+const launchTime = .13;
 const plantTime = .125;
 const gripY = floor - 79;
 const flightTime = .73;
@@ -21,7 +22,7 @@ const panels = [
   { left: roofLeft, right: roofLeft + panelWidth, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-ready', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
+for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-load', 'vault-ready', 'vault-spring', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -124,7 +125,7 @@ function startVault(direction, edge) {
   s.cameraFrom = s.camera;
   s.cameraTo = cameraAt(1 - s.panel, s.to);
   s.face = direction;
-  phase('launch', 'Толчок');
+  phase('crouch', 'Присед');
 }
 
 function update(dt) {
@@ -161,6 +162,9 @@ function update(dt) {
         phase('ground');
         replayButton.disabled = !lastJump;
       }
+      break;
+    case 'crouch':
+      if (s.t >= crouchTime) phase('launch', 'Толчок');
       break;
     case 'launch': {
       const p = clamp(s.t / launchTime, 0, 1);
@@ -350,8 +354,13 @@ function render() {
     ctx.fill();
   }
   drawEffects(s.effects);
-  if (s.phase === 'launch') {
-    sprite('vault-ready', s.x, floor, s.face, 94);
+  if (s.phase === 'crouch') {
+    // Keep the forward boot over the same floor point as the hips sink.
+    if (s.t < .105) sprite('vault-load', s.x, floor, s.face, 111, .73, .98);
+    else sprite('vault-ready', s.x, floor, s.face, 88, .58, .98);
+  } else if (s.phase === 'launch') {
+    const p = clamp(s.t / launchTime, 0, 1);
+    sprite('vault-spring', s.x, floor - 15 * p, s.face, 115, .43, .98, -.09 * p);
   } else if (s.phase === 'plant') {
     const p = clamp(s.t / plantTime, 0, 1);
     sprite('vault-plant', s.edge, gripY, s.face, 92, .982, .222, lerp(-.11, .15, ease(p)));
