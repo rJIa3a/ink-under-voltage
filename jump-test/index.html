@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Чернила под током — прыжок через рамку</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="jump.css">
+<script src="jump.js" defer></script>
+</head>
+<body>
+<main>
+<header><strong class="edition">ЧЕРНИЛА ПОД ТОКОМ</strong><button id="reset" type="button">Заново</button></header>
+<section class="sheet" aria-label="Тест прыжка через рамку">
+<div class="stage"><canvas id="jump" width="960" height="440" aria-label="Две панели комикса"></canvas></div>
+</section>
+<div class="bar">
+<div class="movement" aria-label="Движение"><button data-key="ArrowLeft" aria-label="Влево">←</button><button data-key="ArrowRight" aria-label="Вправо">→</button></div>
+<p id="hint">Подойди к рамке и прыгни</p>
+<button data-key="Space">Прыжок</button>
+</div>
+</main>
+</body>
+</html>

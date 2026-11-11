@@ -1,0 +1,15 @@
+main { width: min(1040px, calc(100% - 24px)); }
+header { margin-bottom: 7px; }
+.stage canvas { aspect-ratio: 24 / 11; }
+.bar { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; margin-top: 10px; }
+.movement { display: flex; gap: 6px; }
+button { min-width: 46px; min-height: 44px; padding: 4px 13px; background: #382736; border: 1px solid #b29b85; font-weight: 850; touch-action: none; user-select: none; -webkit-user-select: none; }
+button[data-key="Space"] { color: #211523; background: #ffcc57; border-color: #ffdc87; }
+button.pressed, button:active { background: #e47857; color: #211523; }
+#hint { margin: 0; text-align: center; font-size: clamp(.72rem, 2vw, .96rem); }
+@media (orientation: landscape) and (max-height: 580px) {
+  main { width: min(calc((100dvh - 119px) * 24 / 11), calc(100% - 28px)); margin: 4px auto; }
+  #reset { min-height: 30px; }
+  .sheet { padding: 5px; }
+  .bar { margin-top: 7px; }
+}
