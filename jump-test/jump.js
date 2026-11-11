@@ -6,13 +6,16 @@ const hint = document.getElementById('hint');
 const W = canvas.width;
 const H = canvas.height;
 const floor = 368;
-const handY = 204;
+const launchTime = .19;
+const flightTime = .61;
+const landingTime = .14;
+const exitDistance = 68;
 const panels = [
   { left: 0, right: 844, label: 'ПЕЧАТНЫЙ ЦЕХ', art: 'press' },
   { left: 980, right: 1824, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-hang', 'vault-pull', 'vault-land']) {
+for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-ready', 'vault-dive', 'vault-land']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -28,9 +31,9 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const ease = p => p * p * (3 - 2 * p);
 
 function reset() {
-  state = { x: 595, y: floor, panel: 0, face: 1, camera: 320, phase: 'ground', t: 0, stride: 0, passes: 0 };
+  state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, passes: 0 };
   jumpQueued = false;
-  hint.textContent = 'Подойди к рамке и прыгни';
+  hint.textContent = 'Иди к жёлтой стрелке';
 }
 
 function phase(name, message) {
@@ -93,11 +96,16 @@ function update(dt) {
       if (move) s.face = move;
       s.x = clamp(s.x + move * 248 * dt, panel.left + 37, panel.right - 37);
       s.stride = move ? s.stride + dt * 10 : 0;
-      if (jump && Math.abs(s.x - edge) <= 148) {
+      const distance = Math.abs(s.x - edge);
+      if ((move === dir && distance <= exitDistance) || (jump && distance <= 126)) {
         s.from = s.x;
-        s.edge = edge;
+        s.takeoff = edge - dir * 26;
+        const next = panels[1 - s.panel];
+        s.to = (dir === 1 ? next.left : next.right) + dir * 156;
+        s.cameraFrom = s.camera;
+        s.cameraTo = dir === 1 ? panels[1].right - W : 0;
         s.face = dir;
-        phase('reach', 'Прыжок к рамке');
+        phase('launch', 'Толчок');
       } else if (jump) {
         s.vy = -420;
         phase('hop');
@@ -109,27 +117,17 @@ function update(dt) {
       s.y = Math.min(floor, s.y + dt * s.vy);
       if (s.y === floor) phase('ground');
       break;
-    case 'reach': {
-      const p = clamp(s.t / .38, 0, 1);
-      s.x = lerp(s.from, s.edge - dir * 46, ease(p));
-      s.y = lerp(floor, handY + 115, ease(p)) - 30 * Math.sin(Math.PI * p);
-      if (p === 1) phase('hang', 'Вис на рамке · нажми прыжок ещё раз');
+    case 'launch': {
+      const p = clamp(s.t / launchTime, 0, 1);
+      s.x = lerp(s.from, s.takeoff, p * p);
+      if (p === 1) phase('cross', 'Перелёт');
       break;
     }
-    case 'hang':
-      if (jump) phase('pull', 'Подтягивание');
-      break;
-    case 'pull':
-      if (s.t >= .36) {
-        s.from = s.edge - dir * 42;
-        s.to = dir === 1 ? panels[1].left + 108 : panels[0].right - 108;
-        phase('cross', 'Перелёт');
-      }
-      break;
     case 'cross': {
-      const p = clamp(s.t / .74, 0, 1);
-      s.x = lerp(s.from, s.to, p);
-      s.y = lerp(handY + 104, floor, p) - 102 * Math.sin(p * Math.PI);
+      const p = clamp(s.t / flightTime, 0, 1);
+      s.x = lerp(s.takeoff, s.to, p);
+      s.y = floor - 126 * 4 * p * (1 - p);
+      s.camera = lerp(s.cameraFrom, s.cameraTo, ease(p));
       if (p === 1) {
         s.panel = 1 - s.panel;
         s.passes++;
@@ -138,11 +136,16 @@ function update(dt) {
       break;
     }
     case 'land':
-      if (s.t >= .28) phase('ground', 'Можно прыгнуть обратно');
+      if (s.t >= landingTime) phase('ground', 'Иди к стрелке, чтобы прыгнуть обратно');
       break;
   }
-  const cameraTarget = clamp(s.x - W / 2 + dir * 65, 0, panels[1].right - W);
-  s.camera += (cameraTarget - s.camera) * (1 - Math.exp(-4.3 * dt));
+  if (s.phase === 'ground' || s.phase === 'hop') {
+    const view = s.panel === 0 ? 0 : panels[1].right - W;
+    const current = panels[s.panel];
+    const nextEdge = s.panel === 0 ? current.right : current.left;
+    const peek = clamp(1 - Math.abs(s.x - nextEdge) / 470, 0, 1) * 205;
+    s.camera += (view + (s.panel === 0 ? 1 : -1) * peek - s.camera) * (1 - Math.exp(-7.5 * dt));
+  }
 }
 
 function drawPanel(panel) {
@@ -187,43 +190,45 @@ function render() {
   ctx.save();
   ctx.translate(-Math.round(s.camera), 0);
   panels.forEach(drawPanel);
-  for (const x of [panels[0].right, panels[1].left]) {
-    ctx.fillStyle = '#271b25';
-    ctx.fillRect(x - 9, handY - 6, 18, 12);
-    ctx.fillStyle = '#ffce61';
-    ctx.fillRect(x - 7, handY - 3, 14, 6);
+  if (s.phase === 'ground' || s.phase === 'hop') {
+    const panel = panels[s.panel];
+    const dir = s.panel === 0 ? 1 : -1;
+    const edge = dir === 1 ? panel.right : panel.left;
+    ctx.save();
+    ctx.translate(edge - dir * (77 - 5 * Math.sin(s.t * 12)), floor - 156);
+    ctx.scale(dir, 1);
+    ctx.fillStyle = Math.sin(s.t * 13) < 0 ? '#ffbc42' : '#fff09e';
+    ctx.strokeStyle = '#171117';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(-31, -8);
+    ctx.lineTo(1, -8);
+    ctx.lineTo(1, -19);
+    ctx.lineTo(29, 0);
+    ctx.lineTo(1, 19);
+    ctx.lineTo(1, 8);
+    ctx.lineTo(-31, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
   }
-  if (s.phase !== 'hang' && s.phase !== 'pull' && panels.some(p => s.x > p.left && s.x < p.right)) {
+  if (panels.some(p => s.x > p.left && s.x < p.right)) {
     ctx.fillStyle = '#170f1b88';
     ctx.beginPath();
     ctx.ellipse(s.x, floor + 3, 27, 5, 0, 0, 2 * Math.PI);
     ctx.fill();
   }
-  if (s.phase === 'hang' || s.phase === 'pull') {
-    const pulling = s.phase === 'pull';
-    const p = pulling ? ease(clamp(s.t / .36, 0, 1)) : 0;
-    const blend = clamp((p - .36) / .35, 0, 1);
-    const sway = Math.sin(s.t * 8) * Math.exp(-3.3 * s.t) * .09;
-    if (blend < 1) sprite('vault-hang', s.edge, handY, s.face, 145, .932, .038, sway + p * .24, 1 - blend);
-    if (blend > 0) sprite('vault-pull', s.edge, handY, s.face, 132, .947, .204, (1 - p) * .26, blend);
-    if (!pulling && s.t < .18) {
-      ctx.strokeStyle = '#ffe29a';
-      ctx.lineWidth = 2;
-      for (const dy of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(s.edge + s.face * 7, handY + dy * 6);
-        ctx.lineTo(s.edge + s.face * (13 + s.t * 35), handY + dy * (10 + s.t * 32));
-        ctx.stroke();
-      }
-    }
-  } else if (s.phase === 'reach' || s.phase === 'hop' || s.phase === 'cross') {
-    if (s.phase === 'cross' && s.t < .13) {
-      const blend = clamp(s.t / .13, 0, 1);
-      const handX = s.x + s.face * 42;
-      sprite('vault-pull', handX, s.y - 104, s.face, 132, .947, .204, -.22 * blend, 1 - blend);
-      sprite('vault-reach', s.x, s.y, s.face, 125, .61, 1, 0, blend);
+  if (s.phase === 'launch') {
+    sprite('vault-ready', s.x, floor, s.face, 94);
+  } else if (s.phase === 'hop') {
+    sprite('vault-reach', s.x, s.y, s.face, 125, .61);
+  } else if (s.phase === 'cross') {
+    const p = s.t / flightTime;
+    if (p < .43) {
+      sprite('vault-dive', s.x, s.y - 40, s.face, 80, .52, .63, lerp(-.14, .09, p / .43));
     } else {
-      sprite('vault-reach', s.x, s.y, s.face, 125, .61, 1);
+      sprite('vault-reach', s.x, s.y, s.face, 111, .61, 1, lerp(-.16, .15, (p - .43) / .57));
     }
   } else if (s.phase === 'land') {
     sprite('vault-land', s.x, floor, s.face, 97);
