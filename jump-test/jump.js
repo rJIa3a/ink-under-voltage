@@ -32,7 +32,7 @@ const panels = [
   { left: roofLeft, right: roofLeft + panelWidth, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', ...jogFrames.map(frame => frame.name), 'vault-reach', 'vault-load', 'vault-spring', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
+for (const name of ['press', 'roof', 'vera-idle', ...jogFrames.map(frame => frame.name), 'vault-reach', 'vault-load', 'vault-spring-compact', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -395,7 +395,7 @@ function render(camera) {
     sprite('vault-load', s.x, floor, s.face, 111, .73, .98, .08 * compression, lerp(1.06, .92, compression));
   } else if (s.phase === 'launch') {
     const p = clamp(s.t / launchTime, 0, 1);
-    sprite('vault-spring', s.x, floor - 15 * p * p, s.face, 115, .43, .98, lerp(.08, -.09, p), lerp(.90, 1, p));
+    sprite('vault-spring-compact', s.x, floor - 15 * p * p, s.face, 115, .40, .98, lerp(.08, -.09, p), lerp(.90, 1, p));
   } else if (s.phase === 'plant') {
     const p = clamp(s.t / plantTime, 0, 1);
     sprite('vault-plant', s.edge, gripY, s.face, 92, .982, .222, lerp(-.11, .15, ease(p)));
