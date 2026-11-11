@@ -22,7 +22,7 @@ const panels = [
   { left: roofLeft, right: roofLeft + panelWidth, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-load', 'vault-spring', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover', 'vault-roll', 'vault-stepover']) {
+for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-load', 'vault-spring', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -41,7 +41,7 @@ const ease = p => p * p * (3 - 2 * p);
 
 function reset() {
   previous = null;
-  state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, passes: 0, nextVariant: 'roll', effects: [] };
+  state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, passes: 0, effects: [] };
   jumpQueued = false;
   lastJump = null;
   replayButton.disabled = true;
@@ -84,7 +84,7 @@ replayButton.addEventListener('click', () => {
   pointers.clear();
   jumpQueued = false;
   Object.assign(state, lastJump, { effects: [], stride: 0 });
-  startVault(lastJump.direction, lastJump.edge, lastJump.variant);
+  startVault(lastJump.direction, lastJump.edge);
 });
 document.querySelectorAll('[data-key]').forEach(button => {
   const key = button.dataset.key;
@@ -115,11 +115,9 @@ function cameraAt(panelIndex, x) {
   return base + direction * peek;
 }
 
-function startVault(direction, edge, replayVariant) {
+function startVault(direction, edge) {
   const s = state;
-  s.variant = replayVariant ?? s.nextVariant;
-  if (replayVariant === undefined) s.nextVariant = s.variant === 'roll' ? 'parkour' : 'roll';
-  lastJump = { x: s.x, y: s.y, camera: s.camera, panel: s.panel, direction, edge, variant: s.variant };
+  lastJump = { x: s.x, y: s.y, camera: s.camera, panel: s.panel, direction, edge };
   replayButton.disabled = true;
   s.from = s.x;
   s.edge = edge;
@@ -182,7 +180,7 @@ function update(dt) {
     case 'plant': {
       const p = clamp(s.t / plantTime, 0, 1);
       s.x = s.takeoff - dir * 7 * (1 - ease(p));
-      if (p === 1) phase('cross', s.variant === 'roll' ? 'Кувырок' : 'Паркур');
+      if (p === 1) phase('cross', 'Перелёт');
       break;
     }
     case 'cross': {
@@ -275,35 +273,18 @@ function drawFlight(s, p) {
     // Match the leading shoulder across the three push-off cels.
     const extension = (p - .105) / .09;
     sprite('vault-extend', s.x + s.face * lerp(23, 18, extension), centerY - 24, s.face, 89, .70, .36, lerp(-.06, 0, extension));
+  } else if (p < .29) {
+    sprite('vault-dive', s.x + s.face * 18, centerY - 24, s.face, 80, .61, .27, lerp(0, .07, (p - .195) / .095));
+  } else if (p < .46) {
+    const roll = ease((p - .29) / .17);
+    sprite('vault-tuck', s.x, centerY, s.face, 100, .53, .53, lerp(-.14, .32, roll));
+  } else if (p < .65) {
+    const roll = ease((p - .46) / .19);
+    sprite('vault-twist', s.x, centerY, s.face, 100, .52, .53, lerp(-.27, .26, roll));
   } else {
-    drawAirPose(s, p, centerY);
-  }
-}
-
-function drawAirPose(s, p, centerY) {
-  const rolling = s.variant === 'roll';
-  const diveEnd = rolling ? .29 : .44;
-  const unwindStart = rolling ? .69 : .64;
-  if (p < diveEnd) {
-    const extension = ease((p - .195) / (diveEnd - .195));
-    sprite('vault-dive', s.x + s.face * lerp(18, 7, extension), centerY - lerp(24, 19, extension),
-      s.face, 80, .61, .27, lerp(0, rolling ? .12 : -.09, extension));
-  } else if (!rolling && p < unwindStart) {
-    const step = ease((p - diveEnd) / (unwindStart - diveEnd));
-    sprite('vault-stepover', s.x, centerY + lerp(-5, 0, step), s.face, 105, .56, .54, lerp(-.12, .04, step));
-  } else if (rolling && p < .42) {
-    const tuck = ease((p - diveEnd) / (.42 - diveEnd));
-    sprite('vault-tuck', s.x, centerY, s.face, 100, .53, .53, lerp(-.12, .22, tuck));
-  } else if (rolling && p < .55) {
-    const turn = ease((p - .42) / .13);
-    sprite('vault-roll', s.x, centerY, s.face, 98, .52, .52, lerp(-.13, .17, turn));
-  } else if (rolling && p < unwindStart) {
-    const turn = ease((p - .55) / (unwindStart - .55));
-    sprite('vault-twist', s.x, centerY, s.face, 100, .52, .53, lerp(-.12, .22, turn));
-  } else {
-    const recovery = ease((p - unwindStart) / (1 - unwindStart));
-    // Move the anchor from the torso to the forward sole as it meets the floor.
-    sprite('vault-unwind', s.x, s.y, s.face, 114, lerp(.55, .81, recovery), .98, lerp(-.12, 0, recovery));
+    const recovery = (p - .65) / .35;
+    // Shift the sprite's origin from the torso to the forward sole during descent.
+    sprite('vault-unwind', s.x, s.y, s.face, 114, lerp(.55, .81, ease(recovery)), .98, lerp(-.15, 0, ease(recovery)));
   }
 }
 
