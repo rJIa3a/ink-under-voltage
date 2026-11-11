@@ -3,21 +3,22 @@
 const canvas = document.getElementById('jump');
 const ctx = canvas.getContext('2d');
 const hint = document.getElementById('hint');
+const replayButton = document.getElementById('replay');
 const W = canvas.width;
 const H = canvas.height;
 const floor = 368;
-const launchTime = .15;
-const plantTime = .105;
+const launchTime = .17;
+const plantTime = .125;
 const gripY = floor - 79;
-const flightTime = .62;
-const landingTime = .14;
+const flightTime = .73;
+const landingTime = .24;
 const exitDistance = 68;
 const panels = [
   { left: 0, right: 844, label: 'ПЕЧАТНЫЙ ЦЕХ', art: 'press' },
   { left: 980, right: 1824, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-ready', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind']) {
+for (const name of ['press', 'roof', 'vera-idle', 'vera-walk', 'vault-reach', 'vault-ready', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-recover']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -28,6 +29,7 @@ const pointers = new Map();
 const controls = new Set(['ArrowLeft', 'ArrowRight', 'Space', 'KeyR']);
 let jumpQueued = false;
 let state;
+let lastJump;
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 const lerp = (a, b, t) => a + (b - a) * t;
 const ease = p => p * p * (3 - 2 * p);
@@ -35,6 +37,8 @@ const ease = p => p * p * (3 - 2 * p);
 function reset() {
   state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, passes: 0, effects: [] };
   jumpQueued = false;
+  lastJump = null;
+  replayButton.disabled = true;
   hint.textContent = 'Иди к жёлтой стрелке';
 }
 
@@ -68,6 +72,14 @@ window.addEventListener('blur', () => {
   document.querySelectorAll('.pressed').forEach(button => button.classList.remove('pressed'));
 });
 document.getElementById('reset').addEventListener('click', reset);
+replayButton.addEventListener('click', () => {
+  if (!lastJump || state.phase !== 'ground') return;
+  held.clear();
+  pointers.clear();
+  jumpQueued = false;
+  Object.assign(state, lastJump, { effects: [], stride: 0 });
+  startVault(lastJump.direction, lastJump.edge);
+});
 document.querySelectorAll('[data-key]').forEach(button => {
   const key = button.dataset.key;
   button.addEventListener('pointerdown', event => {
@@ -88,6 +100,21 @@ function down(key) {
   return held.has(key) || Array.from(pointers.values()).includes(key);
 }
 
+function startVault(direction, edge) {
+  const s = state;
+  lastJump = { x: s.x, y: s.y, camera: s.camera, panel: s.panel, direction, edge };
+  replayButton.disabled = true;
+  s.from = s.x;
+  s.edge = edge;
+  s.takeoff = edge - direction * 56;
+  const next = panels[1 - s.panel];
+  s.to = (direction === 1 ? next.left : next.right) + direction * 156;
+  s.cameraFrom = s.camera;
+  s.cameraTo = direction === 1 ? panels[1].right - W : 0;
+  s.face = direction;
+  phase('launch', 'Толчок');
+}
+
 function update(dt) {
   const s = state;
   const panel = panels[s.panel];
@@ -106,17 +133,10 @@ function update(dt) {
       s.stride = move ? s.stride + dt * 10 : 0;
       const distance = Math.abs(s.x - edge);
       if ((move === dir && distance <= exitDistance) || (jump && distance <= 126)) {
-        s.from = s.x;
-        s.edge = edge;
-        s.takeoff = edge - dir * 56;
-        const next = panels[1 - s.panel];
-        s.to = (dir === 1 ? next.left : next.right) + dir * 156;
-        s.cameraFrom = s.camera;
-        s.cameraTo = dir === 1 ? panels[1].right - W : 0;
-        s.face = dir;
-        phase('launch', 'Толчок');
+        startVault(dir, edge);
       } else if (jump) {
         s.vy = -420;
+        replayButton.disabled = true;
         phase('hop');
       }
       break;
@@ -124,7 +144,10 @@ function update(dt) {
     case 'hop':
       s.vy += dt * 1300;
       s.y = Math.min(floor, s.y + dt * s.vy);
-      if (s.y === floor) phase('ground');
+      if (s.y === floor) {
+        phase('ground');
+        replayButton.disabled = !lastJump;
+      }
       break;
     case 'launch': {
       const p = clamp(s.t / launchTime, 0, 1);
@@ -155,7 +178,10 @@ function update(dt) {
       break;
     }
     case 'land':
-      if (s.t >= landingTime) phase('ground', 'Иди к стрелке, чтобы прыгнуть обратно');
+      if (s.t >= landingTime) {
+        phase('ground', 'Иди к стрелке, чтобы прыгнуть обратно');
+        replayButton.disabled = false;
+      }
       break;
   }
   if (s.phase === 'ground' || s.phase === 'hop') {
@@ -218,8 +244,10 @@ function drawFlight(s, p) {
     }
     ctx.restore();
   }
-  if (p < .27) {
-    sprite('vault-dive', s.x, centerY, s.face, 80, .52, .53, lerp(-.14, .07, p / .27));
+  if (p < .11) {
+    sprite('vault-release', s.x, centerY + 6, s.face, 106, .54, .52);
+  } else if (p < .29) {
+    sprite('vault-dive', s.x, centerY, s.face, 80, .52, .53, lerp(-.14, .07, (p - .11) / .18));
   } else if (p < .46) {
     sprite('vault-tuck', s.x, centerY, s.face, 100, .53, .53);
   } else if (p < .65) {
@@ -313,7 +341,8 @@ function render() {
     const p = s.t / flightTime;
     drawFlight(s, p);
   } else if (s.phase === 'land') {
-    sprite('vault-land', s.x, floor, s.face, 97);
+    if (s.t < .125) sprite('vault-land', s.x, floor, s.face, 97);
+    else sprite('vault-recover', s.x, floor, s.face, 113);
   } else {
     const walk = s.stride && Math.floor(s.stride) % 2 === 0;
     sprite(walk ? 'vera-walk' : 'vera-idle', s.x, floor, s.face, 125);

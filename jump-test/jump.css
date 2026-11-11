@@ -13,3 +13,13 @@ button.pressed, button:active { background: #e47857; color: #211523; }
   .sheet { padding: 5px; }
   .bar { margin-top: 7px; }
 }
+.actions { display: flex; gap: 6px; }
+.actions button:disabled { opacity: .42; cursor: default; }
+@media (orientation: landscape) and (max-height: 580px) {
+  .actions button { min-height: 30px; }
+}
+@media (max-width: 380px) {
+  header { gap: 5px; }
+  .edition { font-size: .65rem; letter-spacing: .08em; }
+  .actions button { padding-inline: 7px; }
+}
