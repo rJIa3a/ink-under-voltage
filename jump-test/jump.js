@@ -32,7 +32,7 @@ const panels = [
   { left: roofLeft, right: roofLeft + panelWidth, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', ...jogFrames.map(frame => frame.name), 'vault-reach', 'vault-load', 'vault-spring-compact', 'vault-dive', 'vault-land', 'vault-plant', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release', 'vault-extend', 'vault-recover']) {
+for (const name of ['press', 'roof', 'vera-idle', ...jogFrames.map(frame => frame.name), 'vault-reach', 'vault-load', 'vault-spring-compact', 'vault-dive', 'vault-land', 'vault-plant-compact', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release-compact', 'vault-extend', 'vault-recover']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -297,7 +297,7 @@ function drawFlight(s, p) {
     const releaseProgress = ease(p / .105);
     const palmX = lerp(s.edge, s.x + s.face * 57, releaseProgress);
     const palmY = lerp(gripY, centerY - 24, releaseProgress);
-    sprite('vault-release', palmX, palmY, s.face, 106, .91, .235, lerp(.15, -.06, releaseProgress));
+    sprite('vault-release-compact', palmX, palmY, s.face, 104, .875, .264, lerp(.15, -.06, releaseProgress));
   } else if (p < .195) {
     // Match the leading shoulder across the three push-off cels.
     const extension = (p - .105) / .09;
@@ -398,7 +398,7 @@ function render(camera) {
     sprite('vault-spring-compact', s.x, floor - 15 * p * p, s.face, 115, .40, .98, lerp(.08, -.09, p), lerp(.90, 1, p));
   } else if (s.phase === 'plant') {
     const p = clamp(s.t / plantTime, 0, 1);
-    sprite('vault-plant', s.edge, gripY, s.face, 92, .982, .222, lerp(-.11, .15, ease(p)));
+    sprite('vault-plant-compact', s.edge, gripY, s.face, 101, .974, .250, lerp(-.11, .15, ease(p)));
   } else if (s.phase === 'hop') {
     sprite('vault-reach', s.x, s.y, s.face, 125, .61);
   } else if (s.phase === 'cross') {
