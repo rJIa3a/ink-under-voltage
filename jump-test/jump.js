@@ -32,7 +32,7 @@ const panels = [
   { left: roofLeft, right: roofLeft + panelWidth, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', 'golem-idle', 'shoulder-coil', 'shoulder-hit', 'shoulder-recover', ...jogFrames.map(frame => frame.name), 'vault-reach', 'vault-load', 'vault-spring-compact', 'vault-dive', 'vault-land', 'vault-plant-compact', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release-compact', 'vault-extend', 'vault-recover']) {
+for (const name of ['press', 'roof', 'vera-idle', 'golem-idle', 'shoulder-coil', 'shoulder-hit', 'shoulder-recover', 'uppercut-coil', 'uppercut-hit', ...jogFrames.map(frame => frame.name), 'vault-reach', 'vault-load', 'vault-spring-compact', 'vault-dive', 'vault-land', 'vault-plant-compact', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release-compact', 'vault-extend', 'vault-recover']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -40,9 +40,9 @@ for (const name of ['press', 'roof', 'vera-idle', 'golem-idle', 'shoulder-coil',
 
 const held = new Set();
 const pointers = new Map();
-const controls = new Set(['ArrowLeft', 'ArrowRight', 'Space', 'KeyX', 'KeyR']);
+const controls = new Set(['ArrowLeft', 'ArrowRight', 'Space', 'KeyX', 'KeyZ', 'KeyR']);
 let jumpQueued = false;
-let shoulderQueued = false;
+let attackQueued = null;
 let state;
 let previousCamera;
 let lastJump;
@@ -54,11 +54,11 @@ function reset() {
   state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, jogVelocity: 0, passes: 0, effects: [] };
   jumpQueued = false;
   previousCamera = state.camera;
-  shoulderQueued = false;
+  attackQueued = null;
   state.enemy = { x: 745, y: floor, vx: 0, vy: 0, hp: 2, flash: 0, fade: 0 };
   lastJump = null;
   replayButton.disabled = true;
-  hint.textContent = 'Подбеги к громиле и нажми «Плечо»';
+  hint.textContent = 'Подбеги к громиле и выбери удар';
 }
 
 function phase(name, message) {
@@ -73,7 +73,7 @@ function burst(type, x, y, direction) {
 
 function keyDown(key) {
   if (key === 'Space') jumpQueued = true;
-  if (key === 'KeyX') shoulderQueued = true;
+  if (key === 'KeyX' || key === 'KeyZ') attackQueued = key === 'KeyX' ? 'shoulder' : 'uppercut';
   if (key === 'KeyR') reset();
   held.add(key);
 }
@@ -109,7 +109,7 @@ document.querySelectorAll('[data-key]').forEach(button => {
     pointers.set(event.pointerId, key);
     button.classList.add('pressed');
     if (key === 'Space') jumpQueued = true;
-    if (key === 'KeyX') shoulderQueued = true;
+    if (key === 'KeyX' || key === 'KeyZ') attackQueued = key === 'KeyX' ? 'shoulder' : 'uppercut';
   });
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     button.addEventListener(type, event => {
@@ -200,7 +200,28 @@ function shoulder(s) {
     s.hitStop = .045;
     burst('shoulder', enemy.x - direction * 26, enemy.y - 71, direction);
   }
-  if (p >= .43) phase('ground', enemy.hp && s.panel === 0 ? 'Плечо · ещё один удар' : 'Иди к жёлтой стрелке');
+  if (p >= .43) phase('ground', enemy.hp && s.panel === 0 ? 'Громила ещё на ногах' : 'Иди к жёлтой стрелке');
+}
+
+function uppercut(s) {
+  const enemy = s.enemy;
+  const direction = s.face;
+  const previousX = s.x;
+  const advance = 22 * ease(clamp((s.t - .105) / .13, 0, 1));
+  s.x = clamp(s.from + direction * advance, panels[s.panel].left + 37, panels[s.panel].right - 37);
+  const distance = (enemy.x - s.x) * direction;
+  if (!s.struck && s.panel === 0 && enemy.hp && enemy.y >= floor - 30 &&
+      s.t >= .155 && s.t <= .235 && (enemy.x - previousX) * direction >= 0 &&
+      distance >= -8 && distance <= 52) {
+    s.struck = true;
+    enemy.hp--;
+    enemy.flash = .12;
+    enemy.vx = direction * 145;
+    enemy.vy = -410;
+    s.hitStop = .055;
+    burst('uppercut', enemy.x - direction * 24, enemy.y - 101, direction);
+  }
+  if (s.t >= .40) phase('ground', enemy.hp && s.panel === 0 ? 'Громила ещё на ногах' : 'Иди к жёлтой стрелке');
 }
 
 function update(dt) {
@@ -213,9 +234,9 @@ function update(dt) {
     return;
   }
   const jump = jumpQueued;
-  const attack = shoulderQueued;
+  const attack = attackQueued;
   jumpQueued = false;
-  shoulderQueued = false;
+  attackQueued = null;
   updateOpponent(s.enemy, dt);
   s.t += dt;
   for (const effect of s.effects) effect.age += dt;
@@ -233,7 +254,7 @@ function update(dt) {
         s.jogVelocity = 0;
         s.jogging = false;
         replayButton.disabled = true;
-        phase('shoulder', 'Удар плечом');
+        phase(attack, attack === 'shoulder' ? 'Удар плечом' : 'Апперкот');
       } else if ((s.panel !== 0 || !s.enemy.hp) &&
           ((move === dir && distance <= exitDistance) || (jump && distance <= 126))) {
         startVault(dir, edge);
@@ -246,7 +267,9 @@ function update(dt) {
       break;
     }
     case 'shoulder':
-      shoulder(s);
+    case 'uppercut':
+      if (s.phase === 'shoulder') shoulder(s);
+      else uppercut(s);
       if (s.phase === 'ground') replayButton.disabled = !lastJump;
       break;
     case 'hop':
@@ -386,13 +409,14 @@ function drawEffects(effects) {
     const travel = ease(p);
     ctx.save();
     ctx.globalAlpha = (1 - p) ** 1.4;
-    if (type === 'shoulder') {
+    if (type === 'shoulder' || type === 'uppercut') {
       ctx.font = 'italic 950 35px system-ui';
       ctx.strokeStyle = '#171117';
       ctx.lineWidth = 5;
-      ctx.strokeText('БАХ!', x - 28, y - 30 - travel * 18);
+      const word = type === 'uppercut' ? 'ХРЯСЬ!' : 'БАХ!';
+      ctx.strokeText(word, x - 28, y - 30 - travel * 18);
       ctx.fillStyle = '#ffda74';
-      ctx.fillText('БАХ!', x - 28, y - 30 - travel * 18);
+      ctx.fillText(word, x - 28, y - 30 - travel * 18);
     }
     if (type !== 'land') {
       ctx.fillStyle = '#fff2b5';
@@ -469,7 +493,11 @@ function render(camera) {
     ctx.restore();
   }
   drawEffects(s.effects);
-  if (s.phase === 'shoulder') {
+  if (s.phase === 'uppercut') {
+    if (s.t < .105) sprite('uppercut-coil', s.x, floor, s.face, 114, .51);
+    else if (s.t < .27) sprite('uppercut-hit', s.x, floor, s.face, 139, .46);
+    else sprite('vera-idle', s.x, floor, s.face, 125);
+  } else if (s.phase === 'shoulder') {
     const pose = s.t < .12 ? 'shoulder-coil' : s.t < .29 ? 'shoulder-hit' : 'shoulder-recover';
     sprite(pose, s.x, floor, s.face, s.t < .29 ? 113 : 119);
   } else if (s.phase === 'load') {
