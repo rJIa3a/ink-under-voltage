@@ -32,7 +32,7 @@ const panels = [
   { left: roofLeft, right: roofLeft + panelWidth, label: 'КРЫША', art: 'roof' },
 ];
 const art = {};
-for (const name of ['press', 'roof', 'vera-idle', ...jogFrames.map(frame => frame.name), 'vault-reach', 'vault-load', 'vault-spring-compact', 'vault-dive', 'vault-land', 'vault-plant-compact', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release-compact', 'vault-extend', 'vault-recover']) {
+for (const name of ['press', 'roof', 'vera-idle', 'golem-idle', 'shoulder-coil', 'shoulder-hit', 'shoulder-recover', ...jogFrames.map(frame => frame.name), 'vault-reach', 'vault-load', 'vault-spring-compact', 'vault-dive', 'vault-land', 'vault-plant-compact', 'vault-tuck', 'vault-roll', 'vault-twist', 'vault-unwind', 'vault-release-compact', 'vault-extend', 'vault-recover']) {
   const image = new Image();
   image.src = '../assets/' + name + '.png';
   art[name] = image;
@@ -40,8 +40,9 @@ for (const name of ['press', 'roof', 'vera-idle', ...jogFrames.map(frame => fram
 
 const held = new Set();
 const pointers = new Map();
-const controls = new Set(['ArrowLeft', 'ArrowRight', 'Space', 'KeyR']);
+const controls = new Set(['ArrowLeft', 'ArrowRight', 'Space', 'KeyX', 'KeyR']);
 let jumpQueued = false;
+let shoulderQueued = false;
 let state;
 let previousCamera;
 let lastJump;
@@ -53,9 +54,11 @@ function reset() {
   state = { x: 595, y: floor, panel: 0, face: 1, camera: 85, phase: 'ground', t: 0, stride: 0, jogVelocity: 0, passes: 0, effects: [] };
   jumpQueued = false;
   previousCamera = state.camera;
+  shoulderQueued = false;
+  state.enemy = { x: 745, y: floor, vx: 0, vy: 0, hp: 2, flash: 0, fade: 0 };
   lastJump = null;
   replayButton.disabled = true;
-  hint.textContent = 'Иди к жёлтой стрелке';
+  hint.textContent = 'Подбеги к громиле и нажми «Плечо»';
 }
 
 function phase(name, message) {
@@ -70,6 +73,7 @@ function burst(type, x, y, direction) {
 
 function keyDown(key) {
   if (key === 'Space') jumpQueued = true;
+  if (key === 'KeyX') shoulderQueued = true;
   if (key === 'KeyR') reset();
   held.add(key);
 }
@@ -105,6 +109,7 @@ document.querySelectorAll('[data-key]').forEach(button => {
     pointers.set(event.pointerId, key);
     button.classList.add('pressed');
     if (key === 'Space') jumpQueued = true;
+    if (key === 'KeyX') shoulderQueued = true;
   });
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     button.addEventListener(type, event => {
@@ -160,13 +165,58 @@ function moveOnGround(s, panel, input, dt) {
   }
 }
 
+function updateOpponent(enemy, dt) {
+  enemy.flash = Math.max(0, enemy.flash - dt);
+  enemy.x = clamp(enemy.x + enemy.vx * dt, panels[0].left + 40, panels[0].right - 38);
+  enemy.vx *= Math.exp(-4 * dt);
+  if (enemy.y < floor || enemy.vy < 0) {
+    enemy.vy += 1150 * dt;
+    enemy.y = Math.min(floor, enemy.y + enemy.vy * dt);
+    if (enemy.y === floor) enemy.vy = 0;
+  }
+  if (!enemy.hp && enemy.y === floor) enemy.fade += dt;
+}
+
+function shoulder(s) {
+  const p = s.t;
+  const direction = s.face;
+  if (p < .12) {
+    s.x = clamp(s.from - direction * 8 * ease(p / .12), panels[s.panel].left + 37, panels[s.panel].right - 37);
+    return;
+  }
+  const previousX = s.x;
+  s.x = clamp(s.from + direction * lerp(-8, 82, ease(clamp((p - .12) / .16, 0, 1))),
+    panels[s.panel].left + 37, panels[s.panel].right - 37);
+  const enemy = s.enemy;
+  const distance = (enemy.x - s.x) * direction;
+  const previousDistance = (enemy.x - previousX) * direction;
+  if (!s.struck && s.panel === 0 && enemy.hp && enemy.y > floor - 48 &&
+      p <= .29 && distance >= -12 && previousDistance >= 0 && distance <= 65) {
+    s.struck = true;
+    enemy.hp--;
+    enemy.flash = .105;
+    enemy.vx = direction * 350;
+    enemy.vy = -295;
+    s.hitStop = .045;
+    burst('shoulder', enemy.x - direction * 26, enemy.y - 71, direction);
+  }
+  if (p >= .43) phase('ground', enemy.hp && s.panel === 0 ? 'Плечо · ещё один удар' : 'Иди к жёлтой стрелке');
+}
+
 function update(dt) {
   const s = state;
   const panel = panels[s.panel];
   const dir = s.panel === 0 ? 1 : -1;
   const edge = dir === 1 ? panel.right : panel.left;
+  if (s.hitStop > 0) {
+    s.hitStop -= dt;
+    return;
+  }
   const jump = jumpQueued;
+  const attack = shoulderQueued;
   jumpQueued = false;
+  shoulderQueued = false;
+  updateOpponent(s.enemy, dt);
   s.t += dt;
   for (const effect of s.effects) effect.age += dt;
   s.effects = s.effects.filter(effect => effect.age < effect.duration);
@@ -176,7 +226,16 @@ function update(dt) {
       moveOnGround(s, panel, move, dt);
       if (jump) s.landedPose = false;
       const distance = Math.abs(s.x - edge);
-      if ((move === dir && distance <= exitDistance) || (jump && distance <= 126)) {
+      if (attack) {
+        if (move) s.face = move;
+        s.from = s.x;
+        s.struck = false;
+        s.jogVelocity = 0;
+        s.jogging = false;
+        replayButton.disabled = true;
+        phase('shoulder', 'Удар плечом');
+      } else if ((s.panel !== 0 || !s.enemy.hp) &&
+          ((move === dir && distance <= exitDistance) || (jump && distance <= 126))) {
         startVault(dir, edge);
       } else if (jump) {
         s.vy = -420;
@@ -186,6 +245,10 @@ function update(dt) {
       }
       break;
     }
+    case 'shoulder':
+      shoulder(s);
+      if (s.phase === 'ground') replayButton.disabled = !lastJump;
+      break;
     case 'hop':
       s.vy += dt * 1300;
       s.y = Math.min(floor, s.y + dt * s.vy);
@@ -323,7 +386,15 @@ function drawEffects(effects) {
     const travel = ease(p);
     ctx.save();
     ctx.globalAlpha = (1 - p) ** 1.4;
-    if (type === 'grip') {
+    if (type === 'shoulder') {
+      ctx.font = 'italic 950 35px system-ui';
+      ctx.strokeStyle = '#171117';
+      ctx.lineWidth = 5;
+      ctx.strokeText('БАХ!', x - 28, y - 30 - travel * 18);
+      ctx.fillStyle = '#ffda74';
+      ctx.fillText('БАХ!', x - 28, y - 30 - travel * 18);
+    }
+    if (type !== 'land') {
       ctx.fillStyle = '#fff2b5';
       ctx.fillRect(x - 3, y - 17, 6, 34);
       for (let i = 0; i < 6; i++) {
@@ -359,7 +430,7 @@ function render(camera) {
   ctx.save();
   ctx.translate(-camera, 0);
   panels.forEach(drawPanel);
-  if (s.phase === 'ground' || s.phase === 'hop') {
+  if ((s.phase === 'ground' || s.phase === 'hop') && (s.panel !== 0 || !s.enemy.hp)) {
     const panel = panels[s.panel];
     const dir = s.panel === 0 ? 1 : -1;
     const edge = dir === 1 ? panel.right : panel.left;
@@ -388,8 +459,20 @@ function render(camera) {
     ctx.ellipse(s.x, floor + 3, 27, 5, 0, 0, 2 * Math.PI);
     ctx.fill();
   }
+  const enemy = s.enemy;
+  if (enemy.fade < .4) {
+    ctx.save();
+    ctx.globalAlpha = 1 - enemy.fade / .4;
+    if (enemy.flash > 0) ctx.filter = 'brightness(0) invert(1)';
+    sprite('golem-idle', enemy.x, enemy.y, s.x < enemy.x ? -1 : 1, 130,
+      .5, 1, enemy.y < floor ? .16 : 0);
+    ctx.restore();
+  }
   drawEffects(s.effects);
-  if (s.phase === 'load') {
+  if (s.phase === 'shoulder') {
+    const pose = s.t < .12 ? 'shoulder-coil' : s.t < .29 ? 'shoulder-hit' : 'shoulder-recover';
+    sprite(pose, s.x, floor, s.face, s.t < .29 ? 113 : 119);
+  } else if (s.phase === 'load') {
     // Compress around the planted front sole, then release in the next pose.
     const compression = ease(clamp(s.t / loadTime, 0, 1));
     sprite('vault-load', s.x, floor, s.face, 111, .73, .98, .08 * compression, lerp(1.06, .92, compression));

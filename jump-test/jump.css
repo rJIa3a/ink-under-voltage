@@ -23,3 +23,8 @@ button.pressed, button:active { background: #e47857; color: #211523; }
   .edition { font-size: .65rem; letter-spacing: .08em; }
   .actions button { padding-inline: 7px; }
 }
+@media (max-width: 480px) {
+  .bar { gap: 5px; }
+  .bar button { min-width: 38px; padding-inline: 5px; font-size: .8rem; }
+  .bar .movement { gap: 3px; }
+}
