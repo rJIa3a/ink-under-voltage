@@ -10,8 +10,13 @@ const panels = [
   { name: '01 / ПЕЧАТНЫЙ ЦЕХ', art: 'press', enemies: [{ x: 510, hp: 3 }, { x: 760, hp: 4 }] },
   { name: '02 / КРЫША ТИПОГРАФИИ', art: 'roof', enemies: [{ x: 440, hp: 3 }, { x: 750, hp: 7, heavy: true }] },
 ];
+const attacks = {
+  hit: { duration: .27, windup: .08, reach: 102, damage: 1, push: 245, height: 91, word: 'ХРЯСЬ!', strength: 4 },
+  sweep: { duration: .43, windup: .13, reach: 116, damage: 2, push: 335, height: 24, word: 'ШВЫХ!', strength: 6 },
+  'air-kick': { duration: .38, windup: .075, reach: 130, damage: 2, push: 460, height: 60, word: 'БАХ!', strength: 9 },
+};
 const images = new Map();
-for (const name of ['press', 'roof', ...['vera', 'golem'].flatMap(actor => ['idle', 'walk', 'hit'].map(pose => actor + '-' + pose))]) {
+for (const name of ['press', 'roof', 'vera-sweep', 'vera-air-kick', ...['vera', 'golem'].flatMap(actor => ['idle', 'walk', 'hit'].map(pose => actor + '-' + pose))]) {
   const image = new Image();
   image.src = 'assets/' + name + '.png';
   images.set(name, image);
@@ -19,7 +24,7 @@ for (const name of ['press', 'roof', ...['vera', 'golem'].flatMap(actor => ['idl
 
 const keys = new Set();
 const pressed = new Set();
-const controls = new Set(['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space', 'KeyX', 'KeyC', 'Enter', 'KeyP', 'KeyR']);
+const controls = new Set(['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space', 'KeyX', 'KeyZ', 'KeyC', 'Enter', 'KeyP', 'KeyR']);
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 let audio;
 let muted = false;
@@ -155,7 +160,10 @@ function updateActor(unit, dt) {
 function advance(dt) {
   if (state.mode !== 'play') return;
   const hero = state.hero;
-  if (pressed.has('KeyX')) state.buffer = .19;
+  if (pressed.has('KeyX') || pressed.has('KeyZ')) {
+    state.buffer = .19;
+    state.kickQueued = pressed.has('KeyZ');
+  }
   if (pressed.has('Space')) hero.jumpBuffer = .12;
   state.time += dt;
   if (state.freeze > 0) {
@@ -193,7 +201,7 @@ function advance(dt) {
     hero.x = clamp(hero.x + direction * (state.attack > 0 ? 155 : 247) * dt, 44, 920);
   }
   hero.jumpBuffer = Math.max(0, (hero.jumpBuffer || 0) - dt);
-  if (hero.jumpBuffer > 0 && hero.y === ground && hero.stun <= 0 && !hero.guard) {
+  if (hero.jumpBuffer > 0 && state.attack <= 0 && hero.y === ground && hero.stun <= 0 && !hero.guard) {
     hero.jumpBuffer = 0;
     if (state.open && hero.x >= 847) {
       if (state.panel + 1 === panels.length) {
@@ -217,28 +225,35 @@ function advance(dt) {
   }
 
   if (state.attack <= 0 && hero.stun <= 0 && !hero.guard && (state.buffer > 0 || keys.has('KeyX'))) {
-    state.combo = state.comboTime > 0 ? state.combo % 3 + 1 : 1;
-    state.comboTime = .57;
-    state.attack = state.combo === 3 ? .39 : .27;
+    const kick = state.buffer > 0 && state.kickQueued;
+    state.combo = kick ? 0 : state.comboTime > 0 ? state.combo % 3 + 1 : 1;
+    state.comboTime = kick ? 0 : .57;
+    state.attackPose = kick && hero.y < ground ? 'air-kick' : kick || state.combo === 3 ? 'sweep' : 'hit';
+    state.attack = attacks[state.attackPose].duration;
     state.attackHit = false;
     state.buffer = 0;
-    sound(125, 72, .09, .025, 'square');
+    sound(kick ? 165 : 125, 72, .09, .025, 'square');
   }
   if (state.attack > 0) {
+    const move = attacks[state.attackPose];
+    if (state.attackPose === 'air-kick' && hero.y < ground) {
+      hero.x = clamp(hero.x + hero.face * 150 * dt, 44, 920);
+    }
     state.attack -= dt;
-    if (!state.attackHit && state.attack < (state.combo === 3 ? .25 : .19)) {
+    if (!state.attackHit && state.attack <= move.duration - move.windup) {
       state.attackHit = true;
-      const reach = state.combo === 3 ? 126 : 102;
+      const impactY = hero.y - move.height;
       for (const enemy of state.enemies) {
         const distance = (enemy.x - hero.x) * hero.face;
-        if (enemy.hp <= 0 || distance < -14 || distance > reach || hero.y < ground - 86) continue;
-        enemy.hp = Math.max(0, enemy.hp - (state.combo === 3 ? 2 : 1));
+        const top = enemy.y - (enemy.heavy ? 161 : 130);
+        if (enemy.hp <= 0 || distance < -14 || distance > move.reach || impactY < top || impactY > enemy.y) continue;
+        enemy.hp = Math.max(0, enemy.hp - move.damage);
         enemy.flash = .14;
-        enemy.stun = .29;
+        enemy.stun = state.attackPose === 'sweep' ? .49 : .29;
         enemy.attack = 0;
         enemy.cooldown = .47;
-        enemy.push = hero.face * (state.combo === 3 ? 460 : 245);
-        impact(enemy.x, enemy.y - 91, state.combo === 3 ? 'БАХ!' : 'ХРЯСЬ!', '#ffd367', state.combo === 3 ? 9 : 4);
+        enemy.push = hero.face * move.push;
+        impact(enemy.x, impactY, move.word, '#ffd367', move.strength);
       }
     }
   }
@@ -320,7 +335,7 @@ function drawActor(unit, enemy = false) {
   const y = unit.y - (offset ? 120 * Math.sin(offset * Math.PI) : 0);
   const size = enemy ? unit.heavy ? 161 : 130 : 125;
   const punching = enemy ? unit.attack > 0 && unit.attack <= .26 : state.attack > 0 && state.attackHit;
-  const pose = punching ? 'hit' : unit.walking && Math.floor(unit.stride) % 2 === 0 ? 'walk' : 'idle';
+  const pose = punching ? (enemy ? 'hit' : state.attackPose) : unit.walking && Math.floor(unit.stride) % 2 === 0 ? 'walk' : 'idle';
   const image = images.get((enemy ? 'golem' : 'vera') + '-' + pose);
   ctx.save();
   ctx.globalAlpha = enemy && unit.hp <= 0 ? Math.max(0, 1 - unit.fade * 2.1) : 1;
@@ -340,8 +355,11 @@ function drawActor(unit, enemy = false) {
   if (unit.flash > 0 && Math.floor(unit.flash * 24) % 2 === 0) ctx.filter = 'brightness(1.7)';
   if (image.naturalWidth) {
     const spriteWidth = Math.round(image.naturalWidth * size / image.naturalHeight);
-    const anchor = pose === 'hit' ? enemy ? .42 : .34 : pose === 'walk' ? .48 : .5;
-    ctx.drawImage(image, Math.round(-spriteWidth * anchor), -size, spriteWidth, size);
+    const anchor = pose === 'sweep' ? .34 : pose === 'air-kick' ? .40 : pose === 'hit' ? enemy ? .42 : .34 : pose === 'walk' ? .48 : .5;
+    const poseHeight = pose === 'sweep' ? 76 : pose === 'air-kick' ? 100 : size;
+    const poseWidth = Math.round(spriteWidth * poseHeight / size);
+    const footLift = pose === 'air-kick' ? 12 : 0;
+    ctx.drawImage(image, Math.round(-poseWidth * anchor), -poseHeight - footLift, poseWidth, poseHeight);
   }
   ctx.restore();
   if (enemy && unit.hp > 0) {
